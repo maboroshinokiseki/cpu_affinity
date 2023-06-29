@@ -1,0 +1,13 @@
+[cpu]
+# Sets the CPU core affinity.
+# For most modern CPUs with hyper-threading, core 0 and 1 are virtual cores of the same physical core.
+# Possible values: [core ids seperated by comma]
+affinity = [ 0, 2 ]
+
+# Enables this plugin in the editor
+# Possible values: true, false
+editor = false
+
+# Set the process priority
+# Possible values: 0, 1, 2, 3, 4, 5 -> Idle, Below normal, Normal, Above normal, High, Realtime
+priority = 2
