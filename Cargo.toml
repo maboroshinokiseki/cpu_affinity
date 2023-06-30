@@ -7,16 +7,11 @@ edition = "2021"
 
 [dependencies]
 toml_edit = "0.19.11"
+num_cpus = "1.16.0"
 
 [lib]
 crate-type = ["cdylib"]
 
-[target.i686-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
-
 [dependencies.windows]
 version = "0.48"
-features = [
-    "Win32_Foundation",
-    "Win32_System_Threading",
-]
+features = ["Win32_Foundation", "Win32_System_Threading"]

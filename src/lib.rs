@@ -1,4 +1,4 @@
-use std::{ffi::CStr, fs, path::PathBuf};
+use std::{ffi::CStr, fs, ops::Shl, path::PathBuf};
 
 use toml_edit::Document;
 use windows::Win32::System::Threading::{
@@ -134,9 +134,16 @@ pub unsafe extern "C" fn OBSEPlugin_Load(obse: Option<&plugin_api::OBSEInterface
     }
 
     let mut affinity_map = 0;
+    let mut auto_affinity = false;
     for core_id in affinity {
         let core_id = match core_id.as_integer() {
-            Some(core_id) => u32::try_from(core_id).unwrap_or(u32::MAX),
+            Some(core_id) => {
+                if core_id == -1 {
+                    auto_affinity = true;
+                    break;
+                }
+                u32::try_from(core_id).unwrap_or(u32::MAX)
+            }
             None => u32::MAX,
         };
 
@@ -151,14 +158,28 @@ pub unsafe extern "C" fn OBSEPlugin_Load(obse: Option<&plugin_api::OBSEInterface
         return false;
     }
 
-    let succeeded = SetProcessAffinityMask(handle, affinity_map);
-    match succeeded.as_bool() {
-        true => {
-            println!("Set process affinity to {}", affinity_map);
+    if auto_affinity {
+        let core_count = num_cpus::get();
+        if core_count >= 8 {
+            affinity_map = 0b10101010usize;
+        } else if core_count >= 4 {
+            affinity_map = 0b1111usize.shl(core_count - 4);
+        } else {
+            affinity_map = 0;
         }
-        false => {
-            eprintln!("Failed to set process affinity.");
-            return false;
+    }
+    if affinity_map == 0 {
+        println!("Affinity setting disabled");
+    } else {
+        let succeeded = SetProcessAffinityMask(handle, affinity_map);
+        match succeeded.as_bool() {
+            true => {
+                println!("Set process affinity to 0x{:X}", affinity_map);
+            }
+            false => {
+                eprintln!("Failed to set process affinity.");
+                return false;
+            }
         }
     }
 
