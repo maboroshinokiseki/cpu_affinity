@@ -1,6 +1,6 @@
 use std::{ffi::CStr, fs, ops::Shl, path::PathBuf};
 
-use toml_edit::Document;
+use toml_edit::{Document, Item, Table};
 use windows::Win32::System::Threading::{
     GetCurrentProcess, SetPriorityClass, SetProcessAffinityMask, ABOVE_NORMAL_PRIORITY_CLASS,
     BELOW_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS, NORMAL_PRIORITY_CLASS,
@@ -55,77 +55,48 @@ pub unsafe extern "C" fn OBSEPlugin_Load(obse: Option<&plugin_api::OBSEInterface
 
     // some tedious error handling
 
-    let cpu = match config.get_mut("cpu") {
-        Some(cpu) => cpu,
-        None => {
-            config_changed = true;
-            config.insert("cpu", default_config["cpu"].clone());
-            &mut config["cpu"]
-        }
-    };
+    let cpu = toml_get_or_insert_with(
+        &mut config,
+        "cpu",
+        |i| i.is_table(),
+        &default_config,
+        &mut config_changed,
+    )
+    .as_table_mut()
+    .unwrap();
 
-    let cpu = match cpu.as_table_mut() {
-        Some(cpu) => cpu,
-        None => {
-            config_changed = true;
-            config.insert("cpu", default_config["cpu"].clone());
-            config["cpu"].as_table_mut().unwrap()
-        }
-    };
+    let default_config_cpu = default_config["cpu"].as_table().unwrap();
 
-    let affinity = match cpu.get("affinity") {
-        Some(affinity) => affinity,
-        None => {
-            config_changed = true;
-            cpu["affinity"] = default_config["cpu"]["affinity"].clone();
-            &cpu["affinity"]
-        }
-    };
+    let affinity = toml_get_or_insert_with(
+        cpu,
+        "affinity",
+        |i| i.is_array(),
+        default_config_cpu,
+        &mut config_changed,
+    )
+    .as_array()
+    .unwrap()
+    .clone();
 
-    let affinity = match affinity.as_array() {
-        Some(affinity) => affinity.clone(),
-        None => {
-            config_changed = true;
-            cpu["affinity"] = default_config["cpu"]["affinity"].clone();
-            cpu["affinity"].as_array().unwrap().clone()
-        }
-    };
+    let editor = toml_get_or_insert_with(
+        cpu,
+        "editor",
+        |i| i.is_bool(),
+        default_config_cpu,
+        &mut config_changed,
+    )
+    .as_bool()
+    .unwrap();
 
-    let editor = match cpu.get("editor") {
-        Some(editor) => editor,
-        None => {
-            config_changed = true;
-            cpu["editor"] = default_config["cpu"]["editor"].clone();
-            &cpu["editor"]
-        }
-    };
-
-    let editor = match editor.as_bool() {
-        Some(editor) => editor,
-        None => {
-            config_changed = true;
-            cpu["editor"] = default_config["cpu"]["editor"].clone();
-            cpu["editor"].as_bool().unwrap()
-        }
-    };
-
-    let priority = match cpu.get("priority") {
-        Some(affinity) => affinity,
-        None => {
-            config_changed = true;
-            cpu["priority"] = default_config["cpu"]["priority"].clone();
-            &cpu["priority"]
-        }
-    };
-
-    let priority = match priority.as_integer() {
-        Some(affinity) => affinity,
-        None => {
-            config_changed = true;
-            cpu["priority"] = default_config["cpu"]["priority"].clone();
-            cpu["priority"].as_integer().unwrap()
-        }
-    };
+    let priority = toml_get_or_insert_with(
+        cpu,
+        "priority",
+        |i| i.is_integer(),
+        default_config_cpu,
+        &mut config_changed,
+    )
+    .as_integer()
+    .unwrap();
 
     if let Some(obse) = obse {
         if obse.is_editor != 0 && !editor {
@@ -178,7 +149,6 @@ pub unsafe extern "C" fn OBSEPlugin_Load(obse: Option<&plugin_api::OBSEInterface
             }
             false => {
                 eprintln!("Failed to set process affinity.");
-                return false;
             }
         }
     }
@@ -200,7 +170,6 @@ pub unsafe extern "C" fn OBSEPlugin_Load(obse: Option<&plugin_api::OBSEInterface
         }
         false => {
             eprintln!("Failed to set process priority.");
-            return false;
         }
     }
 
@@ -209,4 +178,27 @@ pub unsafe extern "C" fn OBSEPlugin_Load(obse: Option<&plugin_api::OBSEInterface
     }
 
     true
+}
+
+fn toml_get_or_insert_with<'a, P>(
+    table: &'a mut Table,
+    key: &str,
+    predicate: P,
+    default: &Table,
+    modified: &mut bool,
+) -> &'a mut Item
+where
+    P: FnOnce(&Item) -> bool,
+{
+    match table.entry(key) {
+        toml_edit::Entry::Occupied(mut item) => {
+            if !predicate(item.get()) {
+                *modified = true;
+                item.insert(default[key].clone());
+            }
+
+            item.into_mut()
+        }
+        toml_edit::Entry::Vacant(item) => item.insert(default[key].clone()),
+    }
 }
